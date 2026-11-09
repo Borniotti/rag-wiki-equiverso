@@ -19,6 +19,7 @@ export const semAcento = (texto) => texto.normalize("NFKD").replace(/[̀-ͯ]/g, 
 /** Troca links por seus textos visíveis e tira marcações de Markdown e HTML. */
 export const limparMarkdown = (texto) =>
   texto
+    .replace(/```[\s\S]*?(```|$)/g, " ") // blocos de código (árvores em Mermaid etc.)
     .replace(/\[\[([^\]|]+)(?:\\?\|([^\]]+))?\]\]/g, (_, alvo, nome) => nome ?? alvo)
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     .replace(/!\S+/g, " ")

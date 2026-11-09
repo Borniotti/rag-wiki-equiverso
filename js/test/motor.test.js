@@ -231,3 +231,8 @@ test("geradorWorkersAI: monta o pedido e lê os dois formatos de resposta", asyn
   assert.equal(pedidos[1].pedido.reasoning_effort, undefined)
   assert.ok(estimarNeuronios("@cf/openai/gpt-oss-120b", a.uso) > 100)
 })
+
+test("blocos de código (árvores em Mermaid) não entram no texto", () => {
+  const t = tokenizar("Família\n```mermaid\nflowchart TD\nwalter --> wilma\n```\nfim")
+  assert.ok(!t.includes("flowchart") && t.includes("fim"))
+})
