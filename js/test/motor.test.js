@@ -330,3 +330,15 @@ test("pergunta sem número de episódio ainda acha o assunto", () => {
   const r = indice.buscar("que episodio o Benício fala com a mãe dele? eu nao lembro")
   assert.ok(r.length > 0)
 })
+
+test("lixo que também é JSON (\"-2.1e4\") não vale como resposta, e o gerador tenta de novo", async () => {
+  assert.equal(lerSaida("-2.1e4"), null)
+  assert.equal(lerSaida("[1,2]"), null)
+  let n = 0
+  const ai = {
+    run: async () => (n++ === 0 ? { choices: [{ message: { content: "-2.1e4" } }] } : { choices: [{ message: { content: '{"busca":"Krave","episodios":[],"sobre_o_assunto":true}' } }] }),
+  }
+  const r = await geradorWorkersAI(ai, { modelo: "@cf/openai/gpt-oss-20b" })({ sistema: "s", mensagem: "m", esquema: {} })
+  assert.equal(r.saida.busca, "Krave")
+  assert.equal(n, 2)
+})
