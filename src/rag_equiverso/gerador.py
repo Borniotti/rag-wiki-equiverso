@@ -82,7 +82,7 @@ class Assistente:
         modelo: str = MODELO,
         esforco: str = "medium",
         k: int = 6,
-        cobertura_minima: float = 0.5,
+        cobertura_minima: float = 0.4,
     ):
         self.indice = indice
         self.cliente = cliente

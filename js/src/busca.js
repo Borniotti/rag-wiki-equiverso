@@ -89,5 +89,10 @@ export class IndiceBM25 {
 }
 
 /** Se nenhum trecho cobre pelo menos `minima` da pergunta, a coleção provavelmente não fala disso. */
-export const coberturaSuficiente = (resultados, minima = 0.5) =>
+// Abaixo disso, a pergunta é tratada como fora do assunto (e a IA nem é chamada). Perguntas
+// longas e soltas ("que episódio o Krave fala com aquele ancestral dele?") ficam perto de
+// 0,5; as de fora do assunto testadas ("Quem ganhou a Copa de 2002?"), perto de 0,3.
+export const COBERTURA_MINIMA = 0.4
+
+export const coberturaSuficiente = (resultados, minima = COBERTURA_MINIMA) =>
   resultados.length > 0 && Math.max(...resultados.map((r) => r.cobertura)) >= minima

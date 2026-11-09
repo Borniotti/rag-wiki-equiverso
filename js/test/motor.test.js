@@ -303,3 +303,30 @@ test("conferirEntendimento descarta lixo", () => {
   const e = conferirEntendimento({ busca: "<script>Ayla", episodios: ["XDQ-02 ", 3], sobre_o_assunto: true }, { valido: (c) => c === "xdq-02" })
   assert.deepEqual(e, { busca: "script Ayla", episodios: ["xdq-02"], sobre: true })
 })
+
+test("textoDaResposta lê os formatos da Workers AI", async () => {
+  const { textoDaResposta } = await import("../src/geradores.js")
+  assert.equal(textoDaResposta({ choices: [{ message: { content: "a" } }] }), "a")
+  assert.equal(textoDaResposta({ choices: [{ message: { content: [{ type: "text", text: "b" }] } }] }), "b")
+  assert.equal(textoDaResposta({ output: [{ type: "reasoning", content: [{ text: "x" }] }, { type: "message", content: [{ type: "output_text", text: "c" }] }] }), "c")
+  assert.deepEqual(textoDaResposta({ response: { resposta: "d" } }), { resposta: "d" })
+})
+
+test("geradorWorkersAI tenta de novo sem esquema se o modelo recusar o formato", async () => {
+  const pedidos = []
+  const ai = {
+    run: async (modelo, pedido) => {
+      pedidos.push(pedido)
+      if (pedido.response_format) throw new Error("response_format not supported")
+      return { choices: [{ message: { content: 'Aqui: {"resposta":"ok","fontes":[1],"encontrou_resposta":true}' } }] }
+    },
+  }
+  const r = await geradorWorkersAI(ai)({ sistema: "s", mensagem: "m", esquema: {} })
+  assert.equal(r.saida.resposta, "ok")
+  assert.equal(pedidos.length, 2)
+})
+
+test("pergunta sem número de episódio ainda acha o assunto", () => {
+  const r = indice.buscar("que episodio o Benício fala com a mãe dele? eu nao lembro")
+  assert.ok(r.length > 0)
+})
