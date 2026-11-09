@@ -21,6 +21,7 @@ import {
   geradorWorkersAI,
   estimarNeuronios,
   NAO_ACHEI,
+  conferirEntendimento,
 } from "../src/index.js"
 import * as episodios from "../src/episodios.js"
 
@@ -127,7 +128,7 @@ test("sem regra de nível, nada é escondido", () => {
 // ---------- busca e filtro de spoiler ----------
 
 const trechosWiki = carregarWiki()
-const indice = new IndiceBM25(trechosWiki)
+const indice = new IndiceBM25(trechosWiki, { lerPergunta: episodios.lerPergunta, termosExtras: episodios.termosExtras })
 
 test("a busca acha o mosquito gigante", () => {
   const r = indice.buscar("Quem matou o mosquito gigante?")
@@ -235,4 +236,70 @@ test("geradorWorkersAI: monta o pedido e lê os dois formatos de resposta", asyn
 test("blocos de código (árvores em Mermaid) não entram no texto", () => {
   const t = tokenizar("Família\n```mermaid\nflowchart TD\nwalter --> wilma\n```\nfim")
   assert.ok(!t.includes("flowchart") && t.includes("fim"))
+})
+
+test("tokenizar junta conjugações", () => {
+  assert.deepEqual(tokenizar("falou"), tokenizar("falando"))
+  assert.deepEqual(tokenizar("falou"), tokenizar("falar"))
+})
+
+test("episódio citado na pergunta", () => {
+  assert.deepEqual(episodios.lerPergunta("o que houve no ep 3 de X da Questão?").termos, ["@xdq-03"])
+  assert.deepEqual(episodios.lerPergunta("XdQ 9,5").termos, ["@xdq-09-5"])
+  assert.deepEqual(episodios.lerPergunta("episódio 5 do Equinócio").termos, ["@eq-05"])
+  assert.deepEqual(episodios.lerPergunta("Quem é a Ayla?").termos, [])
+})
+
+test("pergunta com episódio acha a página dele", () => {
+  const r = indice.buscar("o que aconteceu no ep 2 de x da questao", { k: 3 })
+  assert.ok(r.some((x) => x.trecho.p.endsWith("xdq-02")))
+  assert.ok(coberturaSuficiente(r))
+})
+
+// ---------- a IA interpreta a pergunta antes da busca ----------
+
+test("entender: a pergunta torta acha os trechos certos", async () => {
+  const pedidos = []
+  const entendedor = async ({ mensagem, esquema }) => {
+    pedidos.push(mensagem)
+    assert.deepEqual(esquema.required, ["busca", "episodios", "sobre_o_assunto"])
+    return { saida: { busca: "mosquito gigante matou criatura", episodios: ["xdq-01", "xdq-99", "lixo"], sobre_o_assunto: true } }
+  }
+  const gerador = async ({ mensagem }) => {
+    assert.ok(/mosquito/i.test(mensagem))
+    return { saida: { resposta: "Foi a Nina.", fontes: [1], encontrou_resposta: true } }
+  }
+  const r = await responder(indice, "qm detonou aquele bixo q chupava sangue?", {
+    gerador,
+    entendedor,
+    contexto: { nomes: ["Nina", "Mosquito gigante"], episodios: [["xdq-01", "Vampiro"]], valido: (c) => c === "xdq-01" },
+  })
+  assert.equal(r.modo, "ia")
+  assert.ok(pedidos[0].includes("<nomes>Nina; Mosquito gigante</nomes>") && pedidos[0].includes("<pergunta>"))
+})
+
+test("entender: fora do assunto não chama o gerador da resposta", async () => {
+  let chamadas = 0
+  const r = await responder(indice, "receita de bolo", {
+    gerador: async () => (chamadas++, {}),
+    entendedor: async () => ({ saida: { busca: "bolo receita", episodios: [], sobre_o_assunto: false } }),
+  })
+  assert.equal(r.resposta, NAO_ACHEI)
+  assert.equal(chamadas, 0)
+})
+
+test("entender: se a IA falhar, a busca segue sozinha", async () => {
+  const r = await responder(indice, "Quem matou o mosquito gigante?", {
+    entendedor: async () => {
+      throw new Error("fora do ar")
+    },
+  })
+  assert.equal(r.modo, "trechos")
+})
+
+test("conferirEntendimento descarta lixo", () => {
+  assert.equal(conferirEntendimento(null), null)
+  assert.equal(conferirEntendimento({ episodios: [] }), null)
+  const e = conferirEntendimento({ busca: "<script>Ayla", episodios: ["XDQ-02 ", 3], sobre_o_assunto: true }, { valido: (c) => c === "xdq-02" })
+  assert.deepEqual(e, { busca: "script Ayla", episodios: ["xdq-02"], sobre: true })
 })

@@ -20,6 +20,7 @@ STOPWORDS = frozenset(
     eles elas eu tu voce voces nos me te lhe seu sua seus suas meu minha meus
     minhas foi era ser sao esta estao tem tinha ter ha quando como onde quem
     qual quais porque pois tambem depois antes ainda la aqui ali entao
+    estava estavam esteve estiveram estar fica ficou
     """.split()
 )
 
@@ -44,17 +45,25 @@ def limpar_markdown(texto: str) -> str:
     return re.sub(r"\s+", " ", texto).strip()
 
 
+_VERBOS = ("aram", "eram", "iram", "avam", "ando", "endo", "indo", "ava", "iam", "ou", "eu", "iu", "ar", "er", "ir")
+
+
 def radical(palavra: str) -> str:
     """Stemmer bem simples para português: junta plurais e gêneros comuns.
 
     Não é um stemmer completo (como o RSLP), mas resolve os casos que mais
-    aparecem nas perguntas: 'vampiros' ~ 'vampiro', 'investigadora' ~ 'investigador'.
+    aparecem nas perguntas: 'vampiros' ~ 'vampiro', 'investigadora' ~ 'investigador',
+    'falou' ~ 'falando'.
     """
     if len(palavra) <= 4:
         return palavra
     for sufixo, troca in (("coes", "cao"), ("oes", "ao"), ("ais", "al"), ("eis", "el"), ("res", "r")):
         if palavra.endswith(sufixo):
             return palavra[: -len(sufixo)] + troca
+    # Verbos: "falou", "falando", "falar" e "falava" viram "fal".
+    for sufixo in _VERBOS:
+        if palavra.endswith(sufixo) and len(palavra) - len(sufixo) >= 3:
+            return palavra[: -len(sufixo)]
     if palavra.endswith("s"):
         palavra = palavra[:-1]
     if palavra.endswith(("a", "o")) and len(palavra) > 4:

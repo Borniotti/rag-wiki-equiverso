@@ -206,3 +206,21 @@ def test_pergunta_fora_do_assunto_nao_chama_api(indice):
 def test_cobertura_dos_termos(indice):
     melhor = indice.buscar("mosquito gigante", k=1)[0]
     assert melhor.cobertura == 1.0
+
+
+def test_tokenizar_junta_conjugacoes():
+    assert tokenizar("falou") == tokenizar("falando") == tokenizar("falar")
+
+
+def test_episodio_na_pergunta():
+    from rag_equiverso.episodios import ler_pergunta
+
+    assert ler_pergunta("o que houve no ep 3 de X da Questão?")[1] == ["@xdq-03"]
+    assert ler_pergunta("XdQ 9,5")[1] == ["@xdq-09-5"]
+    assert ler_pergunta("episódio 5 do Equinócio")[1] == ["@eq-05"]
+    assert ler_pergunta("Quem é a Ayla?")[1] == []
+
+
+def test_pergunta_com_episodio_acha_a_pagina_dele(indice):
+    resultados = indice.buscar("o que aconteceu no ep 2 de x da questao", k=3)
+    assert any(r.trecho.pagina.endswith("xdq-02") for r in resultados)
