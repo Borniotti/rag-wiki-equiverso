@@ -36,6 +36,7 @@ def sem_acento(texto: str) -> str:
 
 def limpar_markdown(texto: str) -> str:
     """Troca links por seus textos visíveis e tira marcações de Markdown."""
+    texto = re.sub(r"```.*?(```|$)", " ", texto, flags=re.S)  # blocos de código (Mermaid etc.)
     texto = _LINK_WIKI.sub(lambda m: m.group(2) or m.group(1), texto)
     texto = _LINK_MD.sub(r"\1", texto)
     texto = re.sub(r"!\S+", " ", texto)  # imagens embutidas

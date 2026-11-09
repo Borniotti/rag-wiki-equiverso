@@ -68,11 +68,38 @@ pytest
 
 São 22 testes: normalização de texto, ordem dos episódios, divisão das páginas, filtro de spoiler (ninguém recebe trecho de episódio futuro), persistência do índice, o "não sei" para perguntas fora do assunto e a conversa com o modelo (fontes inventadas, recusa, resposta sem fonte), usando um cliente falso.
 
+## Motor em JavaScript (para sites)
+
+A pasta [`js/`](js/) tem o mesmo motor em JavaScript, sem nenhuma dependência, para rodar em sites e no Cloudflare. É ele que a própria [Wiki do Equiverso](https://wiki-equiverso.equiverso.workers.dev/pergunte) usa no chat "Pergunte à wiki", e foi feito para ser reaproveitado em outros projetos:
+
+| Peça | Arquivo | O que faz |
+|---|---|---|
+| Texto | `texto.js` | normalização em português (sem acento, palavras vazias, plural ≈ singular) |
+| Trechos | `trechos.js` | divide páginas Markdown por seção e marca o "nível" de cada trecho |
+| Busca | `busca.js` | BM25 do zero, filtro de nível, no máximo 2 trechos por página e a cobertura para o "não sei" |
+| Resposta | `resposta.js` | pedido numerado, esquema JSON, conferência das fontes e resposta **sem IA** com frases dos trechos |
+| Geradores | `geradores.js` | quem escreve a resposta: **Workers AI da Cloudflare** (cota diária grátis) ou **Claude** (pago); dá para trocar sem mexer no resto |
+| Regra de spoiler | `episodios.js` | a ordem dos episódios do Equiverso; outro projeto passa a sua própria regra |
+
+```js
+import { dividirPagina, IndiceBM25, responder, geradorWorkersAI } from "rag-equiverso"
+import * as episodios from "rag-equiverso/episodios"
+
+const trechos = paginas.flatMap((p) => dividirPagina(p, { nivelBase: p.primeiraAparicao, nivel: episodios }))
+const indice = new IndiceBM25(trechos)
+const r = await responder(indice, "Quem é a Ayla?", {
+  liberado: episodios.liberadoAte("xdq-05"),
+  gerador: geradorWorkersAI(env.AI), // sem gerador, responde com as frases dos trechos
+})
+```
+
+Sem gerador, ou quando a IA falha (por exemplo, quando a cota grátis do dia acaba), o motor responde com as frases dos próprios trechos que mais combinam com a pergunta, então o chat nunca para. Testes: `cd js && npm test` (19 testes, com geradores falsos).
+
 ## Próximos passos
 
 - Busca híbrida (BM25 + embeddings) com reordenação.
 - Avaliação automática das respostas: veja o projeto [avaliador-llm](https://github.com/Borniotti/avaliador-llm), que mede este assistente.
-- Interface web dentro da própria wiki.
+- ~~Interface web dentro da própria wiki~~: feito, com o motor em JavaScript.
 
 ---
 
