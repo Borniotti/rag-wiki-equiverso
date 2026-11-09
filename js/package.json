@@ -1,0 +1,23 @@
+{
+  "name": "rag-equiverso",
+  "version": "0.1.0",
+  "description": "Motor de perguntas e respostas sobre pastas de Markdown: busca BM25, filtro por nível (spoiler), resposta com fontes e geradores trocáveis",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./texto": "./src/texto.js",
+    "./busca": "./src/busca.js",
+    "./trechos": "./src/trechos.js",
+    "./resposta": "./src/resposta.js",
+    "./geradores": "./src/geradores.js",
+    "./episodios": "./src/episodios.js"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

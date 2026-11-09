@@ -1,0 +1,233 @@
+// Testes do motor em JavaScript (node --test). Mesmas garantias dos testes em Python:
+// texto, ordem dos episódios, divisão das páginas, filtro de spoiler, "não sei" para
+// perguntas fora do assunto e conferência das fontes, com geradores falsos (não gastam nada).
+
+import { test } from "node:test"
+import assert from "node:assert/strict"
+import fs from "node:fs"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
+
+import {
+  tokenizar,
+  dividirPagina,
+  separarFrontmatter,
+  IndiceBM25,
+  coberturaSuficiente,
+  conferirSaida,
+  respostaExtrativa,
+  lerSaida,
+  responder,
+  geradorWorkersAI,
+  estimarNeuronios,
+  NAO_ACHEI,
+} from "../src/index.js"
+import * as episodios from "../src/episodios.js"
+
+const AQUI = path.dirname(fileURLToPath(import.meta.url))
+const WIKI = path.join(AQUI, "..", "..", "dados", "wiki")
+
+// Lê as páginas de exemplo da pasta dados/wiki (só os campos simples do frontmatter).
+function carregarWiki() {
+  const trechos = []
+  const andar = (pasta) => {
+    for (const nome of fs.readdirSync(pasta)) {
+      const caminho = path.join(pasta, nome)
+      if (fs.statSync(caminho).isDirectory()) andar(caminho)
+      else if (nome.endsWith(".md") && nome !== "index.md") {
+        const [fm, corpo] = separarFrontmatter(fs.readFileSync(caminho, "utf-8"))
+        const campo = (k) => fm.match(new RegExp(`^${k}:\\s*"?(.*?)"?\\s*$`, "m"))?.[1]
+        const apelidos = (campo("aliases") ?? "").replace(/^\[|\]$/g, "").split(",").map((s) => s.trim()).filter(Boolean)
+        const slug = nome.replace(/\.md$/, "")
+        const base = episodios.ehCodigo(slug) ? slug : campo("primeira_aparicao")
+        trechos.push(
+          ...dividirPagina(
+            { slug, titulo: campo("title") ?? slug, apelidos, corpo },
+            { nivelBase: base, nivel: episodios, secoesIgnoradas: ["navegação", "momentos marcantes"] },
+          ),
+        )
+      }
+    }
+  }
+  andar(WIKI)
+  return trechos
+}
+
+// ---------- texto ----------
+
+test("tokenizar ignora acento, maiúscula e palavras vazias", () => {
+  assert.deepEqual(tokenizar("O BENÍCIO e a Nina"), tokenizar("benicio nina"))
+})
+
+test("tokenizar junta plural e singular", () => {
+  assert.deepEqual(tokenizar("vampiros"), tokenizar("vampiro"))
+})
+
+test("tokenizar usa o texto visível dos links", () => {
+  assert.ok(tokenizar("[[ayla|Ayla]] chegou").includes("ayla"))
+})
+
+// ---------- episódios ----------
+
+test("ordem entre temporadas e vídeo extra entre episódios", () => {
+  const p = episodios.posicao
+  assert.ok(p("eq-07") < p("sa-01") && p("sa-01") < p("xdq-01"))
+  assert.ok(p("xdq-09") < p("xdq-09-5") && p("xdq-09-5") < p("xdq-10"))
+  assert.equal(episodios.rotulo("xdq-09-5"), "XdQ 9,5")
+  assert.throws(() => p("xdq-3"))
+})
+
+test("citações num texto, sem repetir e em ordem", () => {
+  const texto = "Foi revelado ([[xdq-12|XdQ 12]]) e lembrado ([[eq-05|Eq 5]]) ([[xdq-12|XdQ 12]])."
+  assert.deepEqual(episodios.citacoes(texto), ["eq-05", "xdq-12"])
+})
+
+// ---------- divisão das páginas ----------
+
+const PAGINA = {
+  slug: "fulana",
+  titulo: "Fulana",
+  apelidos: ["Fulaninha"],
+  corpo: `**Fulana** é uma moradora de Atolados ([[xdq-02|XdQ 2]]), conhecida de todos na cidade.
+
+## Detalhes (contém spoilers até X da Questão, ep. 9)
+
+### O segredo
+
+Fulana escondia um mapa do covil, que só foi descoberto muito depois ([[xdq-09|XdQ 9]]).
+
+## Navegação
+
+- Anterior: [[xdq-01|XdQ 1]]
+`,
+  ficha: { Identidade: { Nome: "Fulana", Segredo: "Tem um mapa {xdq-09}" } },
+}
+
+test("divide por seção, marca o nível e ignora a navegação", () => {
+  const trechos = dividirPagina(PAGINA, { nivelBase: "xdq-02", nivel: episodios, secoesIgnoradas: ["navegação"] })
+  const resumo = trechos.find((t) => t.s === "Resumo")
+  const segredo = trechos.find((t) => t.s === "Detalhes › O segredo")
+  assert.equal(resumo.e, "xdq-02")
+  assert.equal(segredo.e, "xdq-09")
+  assert.ok(!trechos.some((t) => t.s.startsWith("Navegação")))
+  assert.deepEqual(resumo.a, ["Fulaninha"])
+})
+
+test("a ficha vira trechos separados por episódio de revelação", () => {
+  const trechos = dividirPagina(PAGINA, { nivelBase: "xdq-02", nivel: episodios }).filter((t) => t.s.startsWith("Ficha"))
+  assert.deepEqual(trechos.map((t) => t.e).sort(), ["xdq-02", "xdq-09"])
+  assert.ok(trechos.find((t) => t.e === "xdq-09").x.includes("Tem um mapa"))
+  assert.ok(!trechos.find((t) => t.e === "xdq-09").x.includes("{"))
+})
+
+test("sem regra de nível, nada é escondido", () => {
+  assert.ok(dividirPagina(PAGINA).every((t) => t.e === null))
+})
+
+// ---------- busca e filtro de spoiler ----------
+
+const trechosWiki = carregarWiki()
+const indice = new IndiceBM25(trechosWiki)
+
+test("a busca acha o mosquito gigante", () => {
+  const r = indice.buscar("Quem matou o mosquito gigante?")
+  assert.ok(r.length > 0)
+  assert.ok(r.slice(0, 3).some((x) => /mosquito/i.test(x.trecho.t + x.trecho.x)))
+})
+
+test("ninguém recebe trecho de episódio futuro", () => {
+  for (const ate of ["xdq-01", "xdq-02", "xdq-03"]) {
+    const liberado = episodios.liberadoAte(ate)
+    for (const pergunta of ["Quem é a Ayla?", "O que é o Canal 666?", "Quem é Osvaldo?"]) {
+      for (const r of indice.buscar(pergunta, { liberado, k: 10 })) {
+        assert.ok(!r.trecho.e || episodios.posicao(r.trecho.e) <= episodios.posicao(ate), `${r.trecho.e} > ${ate}`)
+      }
+    }
+  }
+})
+
+test("no máximo 2 trechos por página", () => {
+  const contagem = {}
+  for (const r of indice.buscar("Lucas Benício Nina Ayla", { k: 10 })) contagem[r.trecho.p] = (contagem[r.trecho.p] ?? 0) + 1
+  assert.ok(Object.values(contagem).every((n) => n <= 2))
+})
+
+test("pergunta fora do assunto tem cobertura baixa", () => {
+  assert.equal(coberturaSuficiente(indice.buscar("Quem ganhou a Copa de 2002?")), false)
+  assert.equal(coberturaSuficiente(indice.buscar("Quem matou o mosquito gigante?")), true)
+})
+
+// ---------- resposta ----------
+
+const T = [
+  { p: "a", t: "A", s: "Resumo", x: "Nina cortou a probóscide do mosquito com um punhal.", e: "xdq-01" },
+  { p: "b", t: "B", s: "Resumo", x: "Lucas feriu o mosquito com um canivete.", e: "xdq-01" },
+]
+
+test("descarta fontes inventadas e não aceita resposta sem fonte", () => {
+  assert.deepEqual(conferirSaida({ resposta: "Nina.", fontes: [1, 99, 1], encontrou_resposta: true }, T).fontes, [T[0]])
+  assert.equal(conferirSaida({ resposta: "Nina.", fontes: [99], encontrou_resposta: true }, T).encontrou, false)
+  assert.equal(conferirSaida({ fontes: [1] }, T), null)
+})
+
+test("lê JSON pronto, em texto ou com sobra em volta", () => {
+  assert.equal(lerSaida({ resposta: "x" }).resposta, "x")
+  assert.equal(lerSaida('{"resposta":"x"}').resposta, "x")
+  assert.equal(lerSaida('Claro! {"resposta":"x"} Espero ter ajudado').resposta, "x")
+  assert.equal(lerSaida("sem json"), null)
+})
+
+test("a resposta sem IA usa frases dos próprios trechos", () => {
+  const r = respostaExtrativa("Quem matou o mosquito?", T)
+  assert.ok(r.encontrou && r.resposta.includes("probóscide"))
+  assert.ok(r.fontes.includes(T[0]))
+})
+
+// ---------- de ponta a ponta, com geradores falsos ----------
+
+test("responder: fora do assunto não chama a IA", async () => {
+  let chamadas = 0
+  const r = await responder(indice, "Quem ganhou a Copa de 2002?", { gerador: async () => (chamadas++, {}) })
+  assert.equal(r.resposta, NAO_ACHEI)
+  assert.equal(chamadas, 0)
+})
+
+test("responder: usa a IA e confere as fontes", async () => {
+  const gerador = async ({ mensagem, esquema }) => {
+    assert.ok(mensagem.includes("<trecho numero=\"1\"") && mensagem.includes("<pergunta>"))
+    assert.deepEqual(esquema.required, ["resposta", "fontes", "encontrou_resposta"])
+    return { saida: { resposta: "Foi a Nina.", fontes: [1, 42], encontrou_resposta: true }, uso: { entrada: 10, saida: 5 } }
+  }
+  const r = await responder(indice, "Quem matou o mosquito gigante?", { gerador, liberado: episodios.liberadoAte("xdq-01") })
+  assert.equal(r.modo, "ia")
+  assert.equal(r.fontes.length, 1)
+})
+
+test("responder: se a IA falhar, responde com os trechos", async () => {
+  const gerador = async () => {
+    throw new Error("cota acabou")
+  }
+  const r = await responder(indice, "Quem matou o mosquito gigante?", { gerador })
+  assert.equal(r.modo, "trechos")
+  assert.ok(r.resposta.length > 0)
+})
+
+test("geradorWorkersAI: monta o pedido e lê os dois formatos de resposta", async () => {
+  const pedidos = []
+  const ai = {
+    run: async (modelo, pedido) => {
+      pedidos.push({ modelo, pedido })
+      return modelo.includes("gpt-oss")
+        ? { choices: [{ message: { content: '{"resposta":"ok","fontes":[1],"encontrou_resposta":true}' } }], usage: { prompt_tokens: 3000, completion_tokens: 500 } }
+        : { response: { resposta: "ok", fontes: [1], encontrou_resposta: true }, usage: { prompt_tokens: 3000, completion_tokens: 300 } }
+    },
+  }
+  const a = await geradorWorkersAI(ai)({ sistema: "s", mensagem: "m", esquema: { type: "object" } })
+  assert.equal(a.saida.resposta, "ok")
+  assert.equal(pedidos[0].pedido.response_format.json_schema.name, "resposta")
+  assert.equal(pedidos[0].pedido.reasoning_effort, "low")
+  const b = await geradorWorkersAI(ai, { modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast" })({ sistema: "s", mensagem: "m", esquema: { type: "object" } })
+  assert.equal(b.saida.resposta, "ok")
+  assert.equal(pedidos[1].pedido.reasoning_effort, undefined)
+  assert.ok(estimarNeuronios("@cf/openai/gpt-oss-120b", a.uso) > 100)
+})
