@@ -35,24 +35,53 @@ export function estimarNeuronios(modelo, uso) {
 export function geradorWorkersAI(ai, { modelo = "@cf/openai/gpt-oss-120b", esforco = "low", maxTokens = 2048 } = {}) {
   const estiloOpenAI = modelo.includes("gpt-oss")
   return async ({ sistema, mensagem, esquema }) => {
-    const pedido = {
+    const base = {
       messages: [
         { role: "system", content: sistema },
         { role: "user", content: mensagem },
       ],
       max_tokens: maxTokens,
-      response_format: estiloOpenAI
-        ? { type: "json_schema", json_schema: { name: "resposta", schema: esquema, strict: true } }
-        : { type: "json_schema", json_schema: esquema },
       ...(estiloOpenAI ? { reasoning_effort: esforco } : {}),
     }
-    const r = await ai.run(modelo, pedido)
-    // gpt-oss responde no formato do ChatGPT (choices); os Llama, em `response`.
-    const bruto = r?.choices?.[0]?.message?.content ?? r?.response ?? ""
+    const formato = estiloOpenAI
+      ? { type: "json_schema", json_schema: { name: "resposta", schema: esquema, strict: true } }
+      : { type: "json_schema", json_schema: esquema }
+    let r
+    try {
+      r = await ai.run(modelo, { ...base, response_format: formato })
+    } catch (erro) {
+      // Alguns modelos recusam o formato com esquema. Como as instruções já pedem JSON,
+      // tenta de novo sem ele; lerSaida acha o JSON no meio do texto. Erro de cota
+      // (4006) ou de modelo fora do ar não adianta repetir.
+      if (/4006|neurons|quota|capacity|not found/i.test(String(erro?.message ?? erro))) throw erro
+      r = await ai.run(modelo, { ...base, messages: [base.messages[0], { role: "user", content: mensagem + "\n\nResponda só com o objeto JSON." }] })
+    }
     const u = r?.usage ?? {}
-    const uso = { entrada: u.prompt_tokens ?? 0, saida: u.completion_tokens ?? 0 }
-    return { saida: lerSaida(bruto), uso, modelo }
+    const uso = { entrada: u.prompt_tokens ?? u.input_tokens ?? 0, saida: u.completion_tokens ?? u.output_tokens ?? 0 }
+    return { saida: lerSaida(textoDaResposta(r)), uso, modelo, bruto: r }
   }
+}
+
+/**
+ * Texto da resposta em qualquer dos formatos da Workers AI: chat completions
+ * (choices[0].message.content, que pode vir em partes), Responses (output[].content[]) ou
+ * o formato antigo dos Llama (response, às vezes já como objeto).
+ */
+export function textoDaResposta(r) {
+  if (!r) return ""
+  const conteudo = r.choices?.[0]?.message?.content
+  if (typeof conteudo === "string" && conteudo.trim()) return conteudo
+  if (Array.isArray(conteudo)) return conteudo.map((c) => c?.text ?? "").join("")
+  if (Array.isArray(r.output)) {
+    const textos = r.output
+      .filter((o) => o?.type === "message")
+      .flatMap((o) => (Array.isArray(o.content) ? o.content : []))
+      .map((c) => c?.text ?? "")
+    if (textos.join("").trim()) return textos.join("")
+  }
+  if (typeof r.output_text === "string") return r.output_text
+  if (r.response !== undefined) return r.response
+  return ""
 }
 
 /**

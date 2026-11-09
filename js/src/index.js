@@ -6,7 +6,7 @@
 // As peças também podem ser usadas separadas (na wiki, a busca roda no navegador e a
 // geração no worker).
 
-import { IndiceBM25, coberturaSuficiente } from "./busca.js"
+import { IndiceBM25, coberturaSuficiente, COBERTURA_MINIMA } from "./busca.js"
 import { INSTRUCOES, ESQUEMA, montarMensagem, conferirSaida, respostaExtrativa } from "./resposta.js"
 import { INSTRUCOES_ENTENDER, ESQUEMA_ENTENDER, montarPedidoEntender, conferirEntendimento } from "./entender.js"
 
@@ -28,7 +28,7 @@ export const NAO_ACHEI = "Não achei nada sobre isso (ou só há informação de
  *   interpreta a pergunta antes da busca; `contexto` = { assunto, nomes, episodios, valido }.
  */
 export async function responder(indice, pergunta, opcoes = {}) {
-  const { liberado, gerador, instrucoes = INSTRUCOES, k = 6, porPagina = 2, coberturaMinima = 0.5 } = opcoes
+  const { liberado, gerador, instrucoes = INSTRUCOES, k = 6, porPagina = 2, coberturaMinima = COBERTURA_MINIMA } = opcoes
   const entendimento = opcoes.entendedor ? await entenderPergunta(opcoes.entendedor, pergunta, opcoes.contexto) : null
   const resultados = indice.buscar(textoDeBusca(pergunta, entendimento), { k, porPagina, liberado })
   // Com a pergunta entendida pela IA, basta achar trechos; sem ela, pede cobertura mínima.

@@ -11,7 +11,7 @@ export const PALAVRAS_VAZIAS = new Set(
   eles elas eu tu voce voces nos me te lhe seu sua seus suas meu minha meus
   minhas foi era ser sao estao tem tinha ter ha quando como onde quem
   qual quais porque pois tambem depois antes ainda la aqui ali entao
-  estava estavam esteve estiveram estar fica ficou`.split(/\s+/),
+  estava estavam esteve estiveram estar fica ficou dele dela deles delas nele nela neles nelas naquele naquela daquele daquela lembro lembra sei acho episodio episodios ep eps temporada`.split(/\s+/),
 )
 
 /** Remove acentos: "Benício" -> "Benicio". */
