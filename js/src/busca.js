@@ -9,8 +9,15 @@ export const PESO_TITULO = 3 // termos do título e dos apelidos contam como se 
 
 export class IndiceBM25 {
   /** @param {{t:string,s:string,x:string,a?:string[],p:string}[]} trechos */
-  constructor(trechos, { pesoTitulo = PESO_TITULO, k1 = 1.5, b = 0.75 } = {}) {
+  /**
+   * Opcional: `termosExtras(trecho, pesoTitulo)` dá termos especiais de cada trecho e
+   * `lerPergunta(pergunta)` devolve `{ texto, termos }` com os mesmos termos tirados da
+   * pergunta. Na wiki, são os episódios ("ep 38 de X da Questão" casa com "@xdq-38");
+   * veja lerPergunta e termosExtras em episodios.js.
+   */
+  constructor(trechos, { pesoTitulo = PESO_TITULO, k1 = 1.5, b = 0.75, termosExtras = null, lerPergunta = null } = {}) {
     this.trechos = trechos
+    this.lerPergunta = lerPergunta
     this.k1 = k1
     this.b = b
     this.termos = trechos.map((t) => {
@@ -21,6 +28,7 @@ export class IndiceBM25 {
       somar(tokenizar([t.t, ...(t.a ?? [])].join(" ")), pesoTitulo)
       somar(tokenizar(t.s ?? ""))
       somar(tokenizar(t.x))
+      if (termosExtras) somar(termosExtras(t, pesoTitulo))
       return contagem
     })
     this.tamanhos = this.termos.map((c) => [...c.values()].reduce((a, v) => a + v, 0))
@@ -52,7 +60,9 @@ export class IndiceBM25 {
    * o trecho cobre. Termo que não existe na coleção ("Copa", "2002") pesa o máximo.
    */
   buscar(pergunta, { k = 6, porPagina = 2, liberado = () => true } = {}) {
-    const termos = tokenizar(pergunta)
+    const lida = this.lerPergunta ? this.lerPergunta(pergunta) : { texto: pergunta, termos: [] }
+    // Termo especial que não existe na wiki (ex.: "@eq-38") é ignorado, não penaliza.
+    const termos = [...tokenizar(lida.texto), ...lida.termos.filter((t) => this.idf.has(t))]
     if (!termos.length) return []
     const pesos = new Map([...new Set(termos)].map((t) => [t, this.idf.get(t) ?? this.idfAusente]))
     const total = [...pesos.values()].reduce((a, v) => a + v, 0)

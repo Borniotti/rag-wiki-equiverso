@@ -68,3 +68,60 @@ def citacoes_em(texto: str) -> list[Episodio]:
         ep = Episodio.de_codigo(m.group(0))
         vistos[ep.chave] = ep
     return sorted(vistos.values())
+
+
+# ---------- episódios citados na pergunta ----------
+# "o que aconteceu no ep 38 de X da Questão?", "XdQ 38", "episódio 5 do Equinócio":
+# a pergunta vira o termo especial "@xdq-38", que casa com os trechos que citam o
+# episódio e, com mais peso, com a página do próprio episódio. Mesma regra do
+# lerPergunta/termosExtras do motor em JavaScript (js/src/episodios.js).
+
+_TEMPORADA = r"(xdq|x\s*d[ae]\s*questao|eq|equinocio|sa|so\s*assim)"
+_NUMERO = r"(\d{1,2})(?:[.,](\d))?"
+_EP = r"(?:ep(?:isodio)?s?\.?|capitulo)"
+_NUM = r"(?:n[.ºo°]?\s*)?"
+_PADROES = [
+    re.compile(rf"\b{_TEMPORADA}\s*[,:-]?\s*(?:{_EP}\s*)?{_NUM}{_NUMERO}\b"),
+    re.compile(rf"\b{_EP}\s*{_NUM}{_NUMERO}\s*(?:d[aeo]s?\s+)?(?:temporada\s+)?{_TEMPORADA}\b"),
+]
+_SO_NUMERO = re.compile(rf"\b{_EP}\s*{_NUM}{_NUMERO}\b")
+
+
+def _prefixo(nome: str) -> str:
+    return "xdq" if nome.startswith("x") else "eq" if nome.startswith("e") else "sa"
+
+
+def _montar(prefixo: str, n: str, d: str | None) -> str:
+    return f"{prefixo}-{int(n):02d}" + (f"-{d}" if d else "")
+
+
+def ler_pergunta(pergunta: str) -> tuple[str, list[str]]:
+    """Tira da pergunta as menções a episódios e devolve (texto, termos "@código")."""
+    from .texto import sem_acento
+
+    texto = sem_acento(pergunta).lower()
+    termos: list[str] = []
+
+    def trocar(m: re.Match) -> str:
+        temporada, n, d = (m.group(3), m.group(1), m.group(2)) if m.group(1)[0].isdigit() else m.groups()
+        termos.append("@" + _montar(_prefixo(re.sub(r"\s+", "", temporada)), n, d))
+        return " "
+
+    for padrao in _PADROES:
+        texto = padrao.sub(trocar, texto)
+
+    def so_numero(m: re.Match) -> str:
+        termos.extend("@" + _montar(p, m.group(1), m.group(2)) for p in ORDEM_TEMPORADAS)
+        return " "
+
+    texto = _SO_NUMERO.sub(so_numero, texto)
+    return texto, list(dict.fromkeys(termos))
+
+
+def termos_extras(secao: str, texto: str, pagina: str, peso_titulo: int = 3) -> list[str]:
+    """Um "@código" por episódio citado e, na página do próprio episódio, o código com peso de título."""
+    termos = ["@" + ep.codigo for ep in citacoes_em(f"{secao} {texto}")]
+    fim = pagina.rstrip("/").split("/")[-1]
+    if _CODIGO.fullmatch(fim.lower()):
+        termos += ["@" + fim.lower()] * peso_titulo
+    return termos

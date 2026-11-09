@@ -79,14 +79,15 @@ A pasta [`js/`](js/) tem o mesmo motor em JavaScript, sem nenhuma dependência, 
 | Busca | `busca.js` | BM25 do zero, filtro de nível, no máximo 2 trechos por página e a cobertura para o "não sei" |
 | Resposta | `resposta.js` | pedido numerado, esquema JSON, conferência das fontes e resposta **sem IA** com frases dos trechos |
 | Geradores | `geradores.js` | quem escreve a resposta: **Workers AI da Cloudflare** (cota diária grátis) ou **Claude** (pago); dá para trocar sem mexer no resto |
-| Regra de spoiler | `episodios.js` | a ordem dos episódios do Equiverso; outro projeto passa a sua própria regra |
+| Regra de spoiler | `episodios.js` | a ordem dos episódios do Equiverso e como reconhecer um episódio na pergunta ("ep 38 de X da Questão"); outro projeto passa a sua própria regra |
 
 ```js
 import { dividirPagina, IndiceBM25, responder, geradorWorkersAI } from "rag-equiverso"
 import * as episodios from "rag-equiverso/episodios"
 
 const trechos = paginas.flatMap((p) => dividirPagina(p, { nivelBase: p.primeiraAparicao, nivel: episodios }))
-const indice = new IndiceBM25(trechos)
+// lerPergunta/termosExtras: "ep 38 de X da Questão" casa com os trechos que citam o XdQ 38
+const indice = new IndiceBM25(trechos, { lerPergunta: episodios.lerPergunta, termosExtras: episodios.termosExtras })
 const r = await responder(indice, "Quem é a Ayla?", {
   liberado: episodios.liberadoAte("xdq-05"),
   gerador: geradorWorkersAI(env.AI), // sem gerador, responde com as frases dos trechos

@@ -21,7 +21,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from .documentos import Trecho
-from .episodios import Episodio
+from .episodios import Episodio, ler_pergunta, termos_extras
 from .texto import tokenizar
 
 PESO_TITULO = 3  # termos do título/apelidos contam como se aparecessem 3 vezes
@@ -41,7 +41,8 @@ class IndiceBM25:
         self._termos: list[Counter] = []
         for t in trechos:
             cabecalho = tokenizar(" ".join([t.titulo, *t.apelidos])) * PESO_TITULO
-            self._termos.append(Counter(cabecalho + tokenizar(t.secao) + tokenizar(t.texto)))
+            extras = termos_extras(t.secao, t.texto, t.pagina, PESO_TITULO)
+            self._termos.append(Counter(cabecalho + tokenizar(t.secao) + tokenizar(t.texto) + extras))
         self._tamanhos = [sum(c.values()) for c in self._termos]
         self._media = sum(self._tamanhos) / max(len(self._tamanhos), 1)
         frequencia_doc: Counter = Counter()
@@ -74,7 +75,10 @@ class IndiceBM25:
         ``max_por_pagina`` evita que uma única página ocupe todo o contexto:
         respostas melhores costumam juntar fontes diferentes.
         """
-        termos = tokenizar(pergunta)
+        # "ep 38 de X da Questão" vira o termo "@xdq-38" (veja episodios.ler_pergunta);
+        # termo especial que não existe na wiki é ignorado, não penaliza.
+        texto, especiais = ler_pergunta(pergunta)
+        termos = tokenizar(texto) + [t for t in especiais if t in self._idf]
         if not termos:
             return []
         # Peso de cada termo = sua raridade (IDF). Termo que não existe na wiki

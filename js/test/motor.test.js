@@ -127,7 +127,7 @@ test("sem regra de nível, nada é escondido", () => {
 // ---------- busca e filtro de spoiler ----------
 
 const trechosWiki = carregarWiki()
-const indice = new IndiceBM25(trechosWiki)
+const indice = new IndiceBM25(trechosWiki, { lerPergunta: episodios.lerPergunta, termosExtras: episodios.termosExtras })
 
 test("a busca acha o mosquito gigante", () => {
   const r = indice.buscar("Quem matou o mosquito gigante?")
@@ -235,4 +235,22 @@ test("geradorWorkersAI: monta o pedido e lê os dois formatos de resposta", asyn
 test("blocos de código (árvores em Mermaid) não entram no texto", () => {
   const t = tokenizar("Família\n```mermaid\nflowchart TD\nwalter --> wilma\n```\nfim")
   assert.ok(!t.includes("flowchart") && t.includes("fim"))
+})
+
+test("tokenizar junta conjugações", () => {
+  assert.deepEqual(tokenizar("falou"), tokenizar("falando"))
+  assert.deepEqual(tokenizar("falou"), tokenizar("falar"))
+})
+
+test("episódio citado na pergunta", () => {
+  assert.deepEqual(episodios.lerPergunta("o que houve no ep 3 de X da Questão?").termos, ["@xdq-03"])
+  assert.deepEqual(episodios.lerPergunta("XdQ 9,5").termos, ["@xdq-09-5"])
+  assert.deepEqual(episodios.lerPergunta("episódio 5 do Equinócio").termos, ["@eq-05"])
+  assert.deepEqual(episodios.lerPergunta("Quem é a Ayla?").termos, [])
+})
+
+test("pergunta com episódio acha a página dele", () => {
+  const r = indice.buscar("o que aconteceu no ep 2 de x da questao", { k: 3 })
+  assert.ok(r.some((x) => x.trecho.p.endsWith("xdq-02")))
+  assert.ok(coberturaSuficiente(r))
 })

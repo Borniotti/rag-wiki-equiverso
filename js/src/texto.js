@@ -10,7 +10,8 @@ export const PALAVRAS_VAZIAS = new Set(
   esses essas este esta estes estas aquele aquela aqueles aquelas ele ela
   eles elas eu tu voce voces nos me te lhe seu sua seus suas meu minha meus
   minhas foi era ser sao estao tem tinha ter ha quando como onde quem
-  qual quais porque pois tambem depois antes ainda la aqui ali entao`.split(/\s+/),
+  qual quais porque pois tambem depois antes ainda la aqui ali entao
+  estava estavam esteve estiveram estar fica ficou`.split(/\s+/),
 )
 
 /** Remove acentos: "Benício" -> "Benicio". */
@@ -32,10 +33,16 @@ export const limparMarkdown = (texto) =>
  * Stemmer bem simples para português: junta plurais e gêneros comuns
  * ("vampiros" ~ "vampiro", "investigadora" ~ "investigador").
  */
+const VERBOS = ["aram", "eram", "iram", "avam", "ando", "endo", "indo", "ava", "iam", "ou", "eu", "iu", "ar", "er", "ir"]
+
 export function radical(palavra) {
   if (palavra.length <= 4) return palavra
   for (const [sufixo, troca] of [["coes", "cao"], ["oes", "ao"], ["ais", "al"], ["eis", "el"], ["res", "r"]]) {
     if (palavra.endsWith(sufixo)) return palavra.slice(0, -sufixo.length) + troca
+  }
+  // Verbos: "falou", "falando", "falar" e "falava" viram "fal".
+  for (const sufixo of VERBOS) {
+    if (palavra.endsWith(sufixo) && palavra.length - sufixo.length >= 3) return palavra.slice(0, -sufixo.length)
   }
   if (palavra.endsWith("s")) palavra = palavra.slice(0, -1)
   if ((palavra.endsWith("a") || palavra.endsWith("o")) && palavra.length > 4) palavra = palavra.slice(0, -1)
