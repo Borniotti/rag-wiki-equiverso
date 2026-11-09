@@ -169,6 +169,7 @@ test("descarta fontes inventadas e não aceita resposta sem fonte", () => {
   assert.deepEqual(conferirSaida({ resposta: "Nina.", fontes: [1, 99, 1], encontrou_resposta: true }, T).fontes, [T[0]])
   assert.equal(conferirSaida({ resposta: "Nina.", fontes: [99], encontrou_resposta: true }, T).encontrou, false)
   assert.equal(conferirSaida({ fontes: [1] }, T), null)
+  assert.equal(conferirSaida({ resposta: "  ", fontes: [], encontrou_resposta: false }, T), null)
 })
 
 test("lê JSON pronto, em texto ou com sobra em volta", () => {
