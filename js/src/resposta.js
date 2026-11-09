@@ -38,17 +38,19 @@ export function montarMensagem(trechos, pergunta) {
 
 /** Lê o JSON da IA (aceita objeto pronto ou texto com o JSON no meio). */
 export function lerSaida(bruto) {
-  if (bruto && typeof bruto === "object") return bruto
+  // Só vale um objeto: modelos às vezes devolvem lixo que também é JSON ("-2.1e4").
+  const objeto = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : null)
+  if (bruto && typeof bruto === "object") return objeto(bruto)
   const texto = String(bruto ?? "")
   try {
-    return JSON.parse(texto)
-  } catch {
-    const m = texto.match(/\{[\s\S]*\}/)
-    if (m) {
-      try {
-        return JSON.parse(m[0])
-      } catch {}
-    }
+    const lido = objeto(JSON.parse(texto))
+    if (lido) return lido
+  } catch {}
+  const m = texto.match(/\{[\s\S]*\}/)
+  if (m) {
+    try {
+      return objeto(JSON.parse(m[0]))
+    } catch {}
   }
   return null
 }

@@ -46,6 +46,11 @@ export function geradorWorkersAI(ai, { modelo = "@cf/openai/gpt-oss-120b", esfor
     const formato = estiloOpenAI
       ? { type: "json_schema", json_schema: { name: "resposta", schema: esquema, strict: true } }
       : { type: "json_schema", json_schema: esquema }
+    const lerUso = (r) => {
+      const u = r?.usage ?? {}
+      return { entrada: u.prompt_tokens ?? u.input_tokens ?? 0, saida: u.completion_tokens ?? u.output_tokens ?? 0 }
+    }
+    const semEsquema = { ...base, messages: [base.messages[0], { role: "user", content: mensagem + "\n\nResponda só com o objeto JSON." }] }
     let r
     try {
       r = await ai.run(modelo, { ...base, response_format: formato })
@@ -54,11 +59,20 @@ export function geradorWorkersAI(ai, { modelo = "@cf/openai/gpt-oss-120b", esfor
       // tenta de novo sem ele; lerSaida acha o JSON no meio do texto. Erro de cota
       // (4006) ou de modelo fora do ar não adianta repetir.
       if (/4006|neurons|quota|capacity|not found/i.test(String(erro?.message ?? erro))) throw erro
-      r = await ai.run(modelo, { ...base, messages: [base.messages[0], { role: "user", content: mensagem + "\n\nResponda só com o objeto JSON." }] })
+      r = await ai.run(modelo, semEsquema)
+      return { saida: lerSaida(textoDaResposta(r)), uso: lerUso(r), modelo, bruto: r }
     }
-    const u = r?.usage ?? {}
-    const uso = { entrada: u.prompt_tokens ?? u.input_tokens ?? 0, saida: u.completion_tokens ?? u.output_tokens ?? 0 }
-    return { saida: lerSaida(textoDaResposta(r)), uso, modelo, bruto: r }
+    let saida = lerSaida(textoDaResposta(r))
+    let uso = lerUso(r)
+    if (!saida) {
+      // Aceitou o formato mas devolveu lixo (acontece com o gpt-oss-20b): mais uma vez, sem esquema.
+      const r2 = await ai.run(modelo, semEsquema)
+      const u2 = lerUso(r2)
+      uso = { entrada: uso.entrada + u2.entrada, saida: uso.saida + u2.saida }
+      saida = lerSaida(textoDaResposta(r2))
+      r = r2
+    }
+    return { saida, uso, modelo, bruto: r }
   }
 }
 
