@@ -8,12 +8,14 @@
 
 import { IndiceBM25, coberturaSuficiente } from "./busca.js"
 import { INSTRUCOES, ESQUEMA, montarMensagem, conferirSaida, respostaExtrativa } from "./resposta.js"
+import { INSTRUCOES_ENTENDER, ESQUEMA_ENTENDER, montarPedidoEntender, conferirEntendimento } from "./entender.js"
 
 export * from "./texto.js"
 export * from "./trechos.js"
 export * from "./busca.js"
 export * from "./resposta.js"
 export * from "./geradores.js"
+export * from "./entender.js"
 
 export const NAO_ACHEI = "Não achei nada sobre isso (ou só há informação depois do ponto que você marcou)."
 
@@ -21,12 +23,17 @@ export const NAO_ACHEI = "Não achei nada sobre isso (ou só há informação de
  * Responde a uma pergunta de ponta a ponta.
  * @param {IndiceBM25} indice
  * @param {string} pergunta
- * @param {object} opcoes { liberado, gerador, instrucoes, k, porPagina, coberturaMinima }
+ * @param {object} opcoes { liberado, gerador, instrucoes, k, porPagina, coberturaMinima,
+ *   entendedor, contexto } — `entendedor` é um gerador (de preferência um modelo menor) que
+ *   interpreta a pergunta antes da busca; `contexto` = { assunto, nomes, episodios, valido }.
  */
 export async function responder(indice, pergunta, opcoes = {}) {
   const { liberado, gerador, instrucoes = INSTRUCOES, k = 6, porPagina = 2, coberturaMinima = 0.5 } = opcoes
-  const resultados = indice.buscar(pergunta, { k, porPagina, liberado })
-  if (!coberturaSuficiente(resultados, coberturaMinima)) return { resposta: NAO_ACHEI, fontes: [], encontrou: false, modo: "busca" }
+  const entendimento = opcoes.entendedor ? await entenderPergunta(opcoes.entendedor, pergunta, opcoes.contexto) : null
+  const resultados = indice.buscar(textoDeBusca(pergunta, entendimento), { k, porPagina, liberado })
+  // Com a pergunta entendida pela IA, basta achar trechos; sem ela, pede cobertura mínima.
+  const achou = entendimento ? entendimento.sobre && resultados.length > 0 : coberturaSuficiente(resultados, coberturaMinima)
+  if (!achou) return { resposta: NAO_ACHEI, fontes: [], encontrou: false, modo: "busca" }
   const trechos = resultados.map((r) => r.trecho)
   if (gerador) {
     try {
@@ -37,5 +44,23 @@ export async function responder(indice, pergunta, opcoes = {}) {
   }
   return { ...respostaExtrativa(pergunta, trechos), modo: "trechos" }
 }
+
+/** Interpreta a pergunta com um gerador; null se não der (a busca segue sem essa ajuda). */
+export async function entenderPergunta(entendedor, pergunta, contexto = {}) {
+  try {
+    const { saida } = await entendedor({
+      sistema: INSTRUCOES_ENTENDER,
+      mensagem: montarPedidoEntender(pergunta, contexto),
+      esquema: ESQUEMA_ENTENDER,
+    })
+    return conferirEntendimento(saida, { valido: contexto.valido })
+  } catch {
+    return null
+  }
+}
+
+/** Texto que vai para a busca: a pergunta, as palavras da IA e os códigos dos episódios. */
+export const textoDeBusca = (pergunta, entendimento) =>
+  entendimento ? [pergunta, entendimento.busca, ...entendimento.episodios].join(" ") : pergunta
 
 export { IndiceBM25 }
